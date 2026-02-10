@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard NPS Pro - Visão Diária</title>
+    <title>Dashboard NPS Pro - Intervalo de Datas</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
@@ -16,6 +16,7 @@
         .kpi-label { font-size: 0.75rem; color: #a1a1aa; text-transform: uppercase; font-weight: 600; margin-bottom: 0.25rem; }
         select, input { background: #18181b; border: 1px solid #3f3f46; color: #fff; padding: 0.5rem; border-radius: 8px; font-size: 0.875rem; outline: none; width: 100%; }
         select:focus, input:focus { border-color: #8b5cf6; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
         .table-container { overflow-y: auto; max-height: 400px; }
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 10px; font-size: 0.7rem; color: #71717a; border-bottom: 1px solid #27272a; text-transform: uppercase; }
@@ -31,8 +32,8 @@
         
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
             <div>
-                <h1 class="text-3xl font-bold text-white tracking-tight">Dashboard NPS <span class="text-violet-500">Real-Time</span></h1>
-                <p class="text-zinc-500">Análise Diária de Performance e Retenção</p>
+                <h1 class="text-3xl font-bold text-white tracking-tight">Dashboard NPS <span class="text-violet-500">Intervalo</span></h1>
+                <p class="text-zinc-500">Análise por Período de Fechamento</p>
             </div>
             <div class="card flex items-center gap-3 py-2 px-4">
                 <span class="text-xs font-bold text-zinc-400">CARREGAR PLANILHA:</span>
@@ -40,11 +41,15 @@
             </div>
         </header>
 
-        <!-- Filtros Atualizados para DATA -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <!-- Filtros Atualizados para Intervalo -->
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
             <div class="flex flex-col gap-1">
-                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Específica</label>
-                <select id="f-date" onchange="update()"><option value="all">Todas as Datas</option></select>
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Início</label>
+                <input type="date" id="f-start-date" onchange="update()">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Término</label>
+                <input type="date" id="f-end-date" onchange="update()">
             </div>
             <div class="flex flex-col gap-1">
                 <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Setor</label>
@@ -60,19 +65,19 @@
             </div>
         </div>
 
-        <!-- KPIs -->
+        <!-- KPIs Principais -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
             <div class="card"><div class="kpi-label">1. NPS</div><div id="v-nps" class="kpi-val text-violet-400">-</div></div>
             <div class="card"><div class="kpi-label">2. Média Notas</div><div id="v-avg" class="kpi-val">-</div></div>
-            <div class="card border-l-4 border-red-500"><div class="kpi-label text-red-500">3. Risco Churn</div><div id="v-churn" class="kpi-val text-red-500">-</div></div>
+            <div class="card border-l-4 border-red-500"><div class="kpi-label text-red-400">3. Risco Churn</div><div id="v-churn" class="kpi-val text-red-500">-</div></div>
             <div class="card"><div class="kpi-label">4. Total Chamados</div><div id="v-total" class="kpi-val">-</div></div>
             <div class="card"><div class="kpi-label">5. Taxa Avaliação</div><div id="v-rate" class="kpi-val">-</div></div>
-            <div class="card"><div class="kpi-label">6. Detratores (Dia)</div><div id="v-dets" class="kpi-val text-red-500">-</div></div>
+            <div class="card"><div class="kpi-label">6. Detratores (Filtrado)</div><div id="v-dets" class="kpi-val text-red-500">-</div></div>
         </div>
 
-        <!-- Detalhamento de Risco Probabilidade -->
+        <!-- Probabilidade de Churn -->
         <div class="card mb-8">
-            <h3 class="kpi-label mb-4 text-red-500 font-bold">🔍 Probabilidade de Churn por Cliente</h3>
+            <h3 class="kpi-label mb-4 text-red-500 font-bold">🔍 Análise de Probabilidade de Cancelamento</h3>
             <div class="table-container scroll-v max-h-64">
                 <table id="t-churn-details">
                     <thead>
@@ -80,9 +85,9 @@
                             <th>Cliente</th>
                             <th>Última Nota</th>
                             <th>Classificação</th>
-                            <th>Vol. Chamados</th>
+                            <th>Tickets</th>
                             <th>Probabilidade</th>
-                            <th>Urgência</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -93,38 +98,46 @@
         <!-- Gráficos -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div class="card lg:col-span-1">
-                <h3 class="kpi-label mb-4">7. Avaliações (Redondo)</h3>
+                <h3 class="kpi-label mb-4">7. Composição da Base</h3>
                 <div class="h-[250px]"><canvas id="c-pie"></canvas></div>
             </div>
             <div class="card lg:col-span-2">
-                <h3 class="kpi-label mb-4">8. Evolução NPS</h3>
+                <h3 class="kpi-label mb-4">8. Evolução NPS por Dia de Fechamento</h3>
                 <div class="h-[250px]"><canvas id="c-line"></canvas></div>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <div class="card">
-                <h3 class="kpi-label mb-4">9. Top 10 Atendentes (Volume)</h3>
+                <h3 class="kpi-label mb-4">9. Volume por Atendente</h3>
                 <div class="h-[300px]"><canvas id="c-agent-vol"></canvas></div>
             </div>
             <div class="card">
-                <h3 class="kpi-label mb-4">10. Top 10 Atendentes (Avaliação)</h3>
+                <h3 class="kpi-label mb-4">10. Média de Nota por Atendente</h3>
                 <div class="h-[300px]"><canvas id="c-agent-avg"></canvas></div>
             </div>
         </div>
 
-        <!-- Listas Inferiores -->
+        <!-- Rodapé Detalhado -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div class="card">
                 <h3 class="kpi-label mb-4">12. Clientes Mais Frequentes</h3>
                 <div class="table-container scroll-v h-80"><table id="t-top-clients"><thead><tr><th>Cliente</th><th>Qtd</th></tr></thead><tbody></tbody></table></div>
             </div>
             <div class="card">
-                <h3 class="kpi-label mb-4 text-red-400">13. Clientes Detratores</h3>
+                <h3 class="kpi-label mb-4 text-red-400">13. Lista de Detratores</h3>
                 <div class="table-container scroll-v h-80"><table id="t-det-list"><thead><tr><th>Cliente</th><th>Nota</th></tr></thead><tbody></tbody></table></div>
             </div>
-            <div class="card">
-                <h3 class="kpi-label mb-4">11. Todos os Motivos</h3>
+            <div class="card flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="kpi-label !mb-0">11. Feedbacks e Motivos</h3>
+                    <select id="f-motive-class" onchange="update()" class="!w-auto !py-1 !px-2 !text-[10px] !bg-zinc-800 border-none">
+                        <option value="all">Todos</option>
+                        <option value="Promotor">Promotores</option>
+                        <option value="Detrator">Detratores</option>
+                        <option value="Neutro">Neutros</option>
+                    </select>
+                </div>
                 <div id="l-motives" class="table-container scroll-v h-80 space-y-3 pr-2"></div>
             </div>
         </div>
@@ -141,20 +154,23 @@
         function handleFile(e) {
             const file = e.target.files[0];
             if (!file) return;
+
             Papa.parse(file, {
                 header: true, skipEmptyLines: true,
                 complete: function(res) {
-                    rawData = res.data.map(r => {
+                    const newRecords = res.data.map(r => {
                         let notaRaw = r['Nota'] ? String(r['Nota']).replace(',', '.').trim() : '';
                         let parsedNota = parseFloat(notaRaw);
-                        let dateRaw = r['Data de abertura do chamado'] || '';
-                        let dt = '';
+                        
+                        let dateRaw = r['Data de fechamento do chamado'] || '';
+                        let dtClose = '';
                         if(dateRaw.includes('/')) {
                             const p = dateRaw.split(' ')[0].split('/');
-                            dt = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+                            dtClose = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
                         }
+                        
                         return {
-                            Data_Abertura: dt,
+                            Data_Fechamento: dtClose,
                             Contato: r['Contato'] || 'Anônimo',
                             Nome_Atendente: r['Nome do atendente'] || 'Não identificado',
                             Departamento: r['Departamentos do chamado'] || 'Geral',
@@ -162,7 +178,9 @@
                             Classificação: r['Classificação'] || 'Não avaliado',
                             Motivo: r['Motivo'] || ''
                         };
-                    }).filter(r => r.Data_Abertura);
+                    }).filter(r => r.Data_Fechamento);
+
+                    rawData = [...rawData, ...newRecords];
                     setupFilters(rawData);
                     update();
                 }
@@ -170,28 +188,32 @@
         }
 
         function setupFilters(data) {
-            const dates = [...new Set(data.map(r => r.Data_Abertura))].sort().reverse();
             const depts = [...new Set(data.map(r => r.Departamento))].sort();
             const agents = [...new Set(data.map(r => r.Nome_Atendente))].sort();
-            fillSelect('f-date', dates, 'Todas as Datas');
             fillSelect('f-dept', depts, 'Todos os Setores');
             fillSelect('f-agent', agents, 'Todos os Atendentes');
         }
 
         function fillSelect(id, items, def) {
             const s = document.getElementById(id);
+            const currentVal = s.value;
             s.innerHTML = `<option value="all">${def}</option>`;
             items.forEach(i => s.add(new Option(i, i)));
+            if([...s.options].some(o => o.value === currentVal)) s.value = currentVal;
         }
 
         function update() {
-            const dt = document.getElementById('f-date').value;
+            const startDt = document.getElementById('f-start-date').value;
+            const endDt = document.getElementById('f-end-date').value;
             const dept = document.getElementById('f-dept').value;
             const ag = document.getElementById('f-agent').value;
             const search = document.getElementById('f-search').value.toLowerCase();
+            const motiveClass = document.getElementById('f-motive-class').value;
 
             const filtered = rawData.filter(r => {
-                return (dt === 'all' || r.Data_Abertura === dt) &&
+                const dateMatch = (startDt === '' || r.Data_Fechamento >= startDt) && 
+                                  (endDt === '' || r.Data_Fechamento <= endDt);
+                return dateMatch &&
                        (dept === 'all' || r.Departamento === dept) &&
                        (ag === 'all' || r.Nome_Atendente === ag) &&
                        (search === '' || r.Contato.toLowerCase().includes(search));
@@ -200,7 +222,7 @@
             renderKPIs(filtered);
             renderChurn(filtered);
             renderCharts(filtered);
-            renderTables(filtered);
+            renderTables(filtered, motiveClass);
         }
 
         function renderKPIs(data) {
@@ -233,7 +255,6 @@
                 const lastClass = s.classes[s.classes.length - 1];
                 const lastNote = s.notes[s.notes.length - 1];
                 if(lastClass === 'Detrator') prob += 65;
-                else if(lastClass === 'Neutro') prob += 30;
                 if(lastNote !== undefined && lastNote <= 4) prob += 25;
                 prob = Math.min(prob, 99);
                 return { name, lastNote: lastNote ?? '-', lastClass, count: s.count, prob };
@@ -253,7 +274,6 @@
         }
 
         function renderCharts(data) {
-            // Pie
             const counts = { 'Promotor': 0, 'Detrator': 0, 'Neutro': 0, 'Não avaliado': 0 };
             data.forEach(r => counts[r.Classificação]++);
             updateChart('c-pie', 'doughnut', {
@@ -261,13 +281,12 @@
                 datasets: [{ data: Object.values(counts), backgroundColor: ['#10b981','#ef4444','#f59e0b','#3f3f46'], borderWidth: 0 }]
             }, { cutout: '75%', plugins: { legend: { position: 'bottom' } } });
 
-            // Line
-            const dates = [...new Set(data.map(r => r.Data_Abertura))].sort();
+            const dates = [...new Set(data.map(r => r.Data_Fechamento))].sort();
             const npsLine = dates.map(dt => {
-                const dayData = data.filter(r => r.Data_Abertura === dt && r.Classificação !== 'Não avaliado');
+                const dayData = data.filter(r => r.Data_Fechamento === dt && r.Classificação !== 'Não avaliado');
                 if(!dayData.length) return null;
-                const p = dayData.filter(r => r.Classificação === 'Promotor').length;
-                const d = dayData.filter(r => r.Classificação === 'Detrator').length;
+                const p = dayData.filter(r => r.Data_Fechamento === dt && r.Classificação === 'Promotor').length;
+                const d = dayData.filter(r => r.Data_Fechamento === dt && r.Classificação === 'Detrator').length;
                 return ((p-d)/dayData.length)*100;
             });
             updateChart('c-line', 'line', {
@@ -275,7 +294,6 @@
                 datasets: [{ label: 'NPS', data: npsLine, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', fill: true, tension: 0.3, pointRadius: 2 }]
             });
 
-            // Agent Vol
             const agentMap = {};
             data.forEach(r => agentMap[r.Nome_Atendente] = (agentMap[r.Nome_Atendente] || 0) + 1);
             const topVol = Object.entries(agentMap).sort((a,b) => b[1]-a[1]).slice(0, 10);
@@ -284,7 +302,6 @@
                 datasets: [{ label: 'Volume', data: topVol.map(x => x[1]), backgroundColor: '#3b82f6', borderRadius: 4 }]
             }, { indexAxis: 'y' });
 
-            // Agent Avg
             const agentScore = {};
             data.forEach(r => {
                 if(r.Nota_numeric === null) return;
@@ -299,7 +316,7 @@
             }, { indexAxis: 'y' });
         }
 
-        function renderTables(data) {
+        function renderTables(data, motiveClass) {
             const cMap = {};
             data.forEach(r => cMap[r.Contato] = (cMap[r.Contato] || 0) + 1);
             const topClients = Object.entries(cMap).sort((a,b) => b[1]-a[1]).slice(0, 15);
@@ -308,12 +325,17 @@
             const dets = data.filter(r => r.Classificação === 'Detrator').reverse().slice(0, 15);
             document.querySelector('#t-det-list tbody').innerHTML = dets.map(x => `<tr><td class="text-red-400">${x.Contato}</td><td class="font-bold">${x.Nota_numeric ?? '-'}</td></tr>`).join('');
 
-            const motives = data.filter(r => r.Motivo).reverse();
+            let motives = data.filter(r => r.Motivo);
+            if(motiveClass !== 'all') {
+                motives = motives.filter(m => m.Classificação === motiveClass);
+            }
+            motives = motives.reverse();
+
             document.getElementById('l-motives').innerHTML = motives.map(m => `
                 <div class="bg-zinc-900 p-3 rounded-lg border border-zinc-800">
                     <div class="flex justify-between items-center text-[10px] mb-1">
-                        <span class="font-bold ${m.Classificação === 'Promotor' ? 'text-emerald-500' : 'text-red-500'}">${m.Classificação.toUpperCase()}</span>
-                        <span class="text-zinc-500">${m.Data_Abertura}</span>
+                        <span class="font-bold ${m.Classificação === 'Promotor' ? 'text-emerald-500' : m.Classificação === 'Detrator' ? 'text-red-500' : 'text-amber-500'}">${m.Classificação.toUpperCase()}</span>
+                        <span class="text-zinc-500">${m.Data_Fechamento}</span>
                     </div>
                     <p class="text-xs text-zinc-200">"${m.Motivo}"</p>
                     <div class="text-[9px] text-zinc-500 mt-1">${m.Contato} • Atendente: ${m.Nome_Atendente}</div>
