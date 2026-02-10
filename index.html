@@ -128,9 +128,13 @@
 
         async function init() {
             document.getElementById('cloud-status').innerText = "Carregando dados da nuvem...";
-            const data = await window.loadFromFirebase();
-            rawData = data || [];
-            document.getElementById('cloud-status').innerText = rawData.length > 0 ? `${rawData.length} registros ativos na nuvem.` : "Banco vazio. Importe um CSV.";
+            try {
+                const data = await window.loadFromFirebase();
+                rawData = data || [];
+                document.getElementById('cloud-status').innerText = rawData.length > 0 ? `${rawData.length} registros ativos na nuvem.` : "Banco vazio. Importe um CSV.";
+            } catch (e) {
+                document.getElementById('cloud-status').innerText = "Erro ao carregar nuvem.";
+            }
             setupFilters(rawData);
             update();
             document.getElementById('csv-upload').addEventListener('change', handleFile);
@@ -282,15 +286,7 @@
                 if(m.Classificação === 'Promotor') colorClass = 'text-emerald-500';
                 else if(m.Classificação === 'Detrator') colorClass = 'text-red-500';
                 else if(m.Classificação === 'Neutro') colorClass = 'text-amber-500';
-                
-                return `<div class="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-[11px] mb-2">
-                    <div class="flex justify-between font-bold mb-1">
-                        <span class="${colorClass}">${m.Classificação.toUpperCase()}</span>
-                        <span class="text-zinc-500">${m.Data_Fechamento}</span>
-                    </div>
-                    <p class="italic text-zinc-200 leading-relaxed">"${m.Motivo}"</p>
-                    <div class="text-[9px] text-zinc-500 mt-2">${m.Contato}</div>
-                </div>`;
+                return `<div class="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-[11px] mb-2"><div class="flex justify-between font-bold mb-1"><span class="${colorClass}">${m.Classificação.toUpperCase()}</span><span class="text-zinc-500">${m.Data_Fechamento}</span></div><p class="italic text-zinc-200">"${m.Motivo}"</p><div class="text-[9px] text-zinc-500 mt-2">${m.Contato}</div></div>`;
             }).join('');
         }
 
