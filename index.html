@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard NPS Pro - Cloud Fix</title>
+    <title>Dashboard NPS Pro - Cloud Sync</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
@@ -26,20 +26,44 @@
         const db = getFirestore(app);
         const npsCollection = collection(db, "avaliacoes");
 
+        // Função de Salvamento com Validação Anti-Duplicados
         window.saveToFirebase = async (data) => {
             try {
-                for (const item of data) { await addDoc(npsCollection, item); }
-                return true;
-            } catch (e) { return false; }
+                // Carrega dados existentes para conferência
+                const querySnapshot = await getDocs(query(npsCollection));
+                const existingKeys = new Set();
+                querySnapshot.forEach((doc) => {
+                    const d = doc.data();
+                    // Cria uma chave única baseada em Cliente, Data e Nota
+                    existingKeys.add(`${d.Contato}-${d.Data_Fechamento}-${d.Nota_numeric}`);
+                });
+
+                let addedCount = 0;
+                for (const item of data) {
+                    const itemKey = `${item.Contato}-${item.Data_Fechamento}-${item.Nota_numeric}`;
+                    if (!existingKeys.has(itemKey)) {
+                        await addDoc(npsCollection, item);
+                        addedCount++;
+                    }
+                }
+                return { success: true, added: addedCount };
+            } catch (e) {
+                console.error("Erro no Firebase:", e);
+                return { success: false, added: 0 };
+            }
         };
 
+        // Função de Carga Inicial
         window.loadFromFirebase = async () => {
             try {
                 const querySnapshot = await getDocs(query(npsCollection));
                 const data = [];
                 querySnapshot.forEach((doc) => data.push(doc.data()));
                 return data;
-            } catch (e) { return []; }
+            } catch (e) {
+                console.error("Erro ao carregar:", e);
+                return [];
+            }
         };
     </script>
 
@@ -49,6 +73,7 @@
         .kpi-val { font-size: 1.875rem; font-weight: 700; color: #ffffff; }
         .kpi-label { font-size: 0.75rem; color: #a1a1aa; text-transform: uppercase; font-weight: 600; margin-bottom: 0.25rem; }
         select, input { background: #18181b; border: 1px solid #3f3f46; color: #fff; padding: 0.5rem; border-radius: 8px; font-size: 0.875rem; outline: none; width: 100%; }
+        select:focus, input:focus { border-color: #8b5cf6; }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
         .table-container { overflow-y: auto; max-height: 400px; }
         table { width: 100%; border-collapse: collapse; }
@@ -56,67 +81,122 @@
         td { padding: 10px; font-size: 0.8rem; border-bottom: 1px solid #27272a; }
         .scroll-v::-webkit-scrollbar { width: 4px; }
         .scroll-v::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
-        .badge-risk { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+        .risk-high { background-color: rgba(239, 68, 68, 0.1); }
+        .badge-risk { padding: 2px 6px; border-radius: 4px; font-size: 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444; }
     </style>
 </head>
 <body class="p-6">
     <div class="max-w-[1500px] mx-auto">
+        
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
             <div>
-                <h1 class="text-3xl font-bold text-white tracking-tight">Dashboard NPS <span class="text-violet-500">Cloud</span></h1>
-                <p id="cloud-status" class="text-zinc-500 text-sm italic">Iniciando conexão...</p>
+                <h1 class="text-3xl font-bold text-white tracking-tight">Dashboard NPS <span class="text-violet-500">Cloud Sync</span></h1>
+                <p id="cloud-status" class="text-zinc-500 italic">Conectando ao banco de dados...</p>
             </div>
-            <div class="flex gap-2">
+            <div class="flex gap-3">
                 <div class="card flex items-center gap-3 py-2 px-4">
-                    <span class="text-xs font-bold text-zinc-400">CSV:</span>
+                    <span class="text-xs font-bold text-zinc-400">PLANILHA:</span>
                     <input type="file" id="csv-upload" accept=".csv" class="text-xs cursor-pointer">
                 </div>
-                <button id="btn-sync" onclick="syncWithFirebase()" class="hidden bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold py-2 px-6 rounded-lg transition shadow-lg">SALVAR NA NUVEM</button>
+                <button id="btn-sync" onclick="syncData()" class="hidden bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold py-2 px-6 rounded-lg transition shadow-lg">
+                    SALVAR NA NUVEM
+                </button>
             </div>
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Início</label><input type="date" id="f-start-date" onchange="update()"></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Término</label><input type="date" id="f-end-date" onchange="update()"></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Setor</label><select id="f-dept" onchange="update()"><option value="all">Todos os Setores</option></select></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Atendente</label><select id="f-agent" onchange="update()"><option value="all">Todos os Atendentes</option></select></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Pesquisar</label><input type="text" id="f-search" placeholder="Cliente..." oninput="update()"></div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Início</label>
+                <input type="date" id="f-start-date" onchange="update()">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Término</label>
+                <input type="date" id="f-end-date" onchange="update()">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Setor</label>
+                <select id="f-dept" onchange="update()"><option value="all">Todos os Setores</option></select>
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Atendente</label>
+                <select id="f-agent" onchange="update()"><option value="all">Todos os Atendentes</option></select>
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Pesquisar Cliente</label>
+                <input type="text" id="f-search" placeholder="Nome do cliente..." oninput="update()">
+            </div>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-            <div class="card"><div class="kpi-label">NPS</div><div id="v-nps" class="kpi-val text-violet-400">-</div></div>
-            <div class="card"><div class="kpi-label">Média</div><div id="v-avg" class="kpi-val">-</div></div>
-            <div class="card border-l-4 border-red-500"><div class="kpi-label text-red-400">Churn</div><div id="v-churn" class="kpi-val text-red-500">-</div></div>
-            <div class="card"><div class="kpi-label">Total</div><div id="v-total" class="kpi-val">-</div></div>
-            <div class="card"><div class="kpi-label">Taxa Eval</div><div id="v-rate" class="kpi-val">-</div></div>
-            <div class="card"><div class="kpi-label">Detratores</div><div id="v-dets" class="kpi-val text-red-500">-</div></div>
+            <div class="card"><div class="kpi-label">1. NPS</div><div id="v-nps" class="kpi-val text-violet-400">-</div></div>
+            <div class="card"><div class="kpi-label">2. Média Notas</div><div id="v-avg" class="kpi-val">-</div></div>
+            <div class="card border-l-4 border-red-500"><div class="kpi-label text-red-400">3. Risco Churn</div><div id="v-churn" class="kpi-val text-red-500">-</div></div>
+            <div class="card"><div class="kpi-label">4. Total Chamados</div><div id="v-total" class="kpi-val">-</div></div>
+            <div class="card"><div class="kpi-label">5. Taxa Avaliação</div><div id="v-rate" class="kpi-val">-</div></div>
+            <div class="card"><div class="kpi-label">6. Detratores (Filtrado)</div><div id="v-dets" class="kpi-val text-red-500">-</div></div>
         </div>
 
         <div class="card mb-8">
-            <h3 class="kpi-label mb-4 text-red-500 font-bold">🔍 DETALHAMENTO DE RISCO (CHURN)</h3>
+            <h3 class="kpi-label mb-4 text-red-500 font-bold">🔍 Análise de Probabilidade de Cancelamento</h3>
             <div class="table-container scroll-v max-h-64">
                 <table id="t-churn-details">
-                    <thead><tr><th>Cliente</th><th>Última Nota</th><th>Classificação</th><th>Tickets</th><th>Risco %</th><th>Status</th></tr></thead>
-                    <tbody class="text-sm"></tbody>
+                    <thead>
+                        <tr>
+                            <th>Cliente</th>
+                            <th>Última Nota</th>
+                            <th>Classificação</th>
+                            <th>Tickets</th>
+                            <th>Probabilidade</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
                 </table>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div class="card lg:col-span-1"><h3 class="kpi-label mb-4">Composição</h3><div class="h-[250px]"><canvas id="c-pie"></canvas></div></div>
-            <div class="card lg:col-span-2"><h3 class="kpi-label mb-4">Evolução NPS</h3><div class="h-[250px]"><canvas id="c-line"></canvas></div></div>
+            <div class="card lg:col-span-1">
+                <h3 class="kpi-label mb-4">7. Composição da Base</h3>
+                <div class="h-[250px]"><canvas id="c-pie"></canvas></div>
+            </div>
+            <div class="card lg:col-span-2">
+                <h3 class="kpi-label mb-4">8. Evolução NPS por Dia de Fechamento</h3>
+                <div class="h-[250px]"><canvas id="c-line"></canvas></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="card">
+                <h3 class="kpi-label mb-4">9. Volume por Atendente</h3>
+                <div class="h-[300px]"><canvas id="c-agent-vol"></canvas></div>
+            </div>
+            <div class="card">
+                <h3 class="kpi-label mb-4">10. Média de Nota por Atendente</h3>
+                <div class="h-[300px]"><canvas id="c-agent-avg"></canvas></div>
+            </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div class="card"><h3 class="kpi-label mb-4 text-violet-400">Clientes Mais Frequentes</h3><div class="table-container scroll-v h-64"><table id="t-top-clients" class="w-full"><tbody></tbody></table></div></div>
-            <div class="card"><h3 class="kpi-label mb-4 text-red-400">Lista Detratores</h3><div class="table-container scroll-v h-64"><table id="t-det-list" class="w-full"><tbody></tbody></table></div></div>
+            <div class="card">
+                <h3 class="kpi-label mb-4">12. Clientes Mais Frequentes</h3>
+                <div class="table-container scroll-v h-80"><table id="t-top-clients"><thead><tr><th>Cliente</th><th>Qtd</th></tr></thead><tbody></tbody></table></div>
+            </div>
+            <div class="card">
+                <h3 class="kpi-label mb-4 text-red-400">13. Lista de Detratores</h3>
+                <div class="table-container scroll-v h-80"><table id="t-det-list"><thead><tr><th>Cliente</th><th>Nota</th></tr></thead><tbody></tbody></table></div>
+            </div>
             <div class="card flex flex-col">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="kpi-label !mb-0">11. Feedbacks</h3>
+                    <h3 class="kpi-label !mb-0">11. Feedbacks e Motivos</h3>
                     <select id="f-motive-class" onchange="update()" class="!w-auto !py-1 !px-2 !text-[10px] !bg-zinc-800 border-none">
-                    <option value="all">Todos</option><option value="Promotor">Promotores</option><option value="Detrator">Detratores</option><option value="Neutro">Neutros</option></select>
+                        <option value="all">Todos</option>
+                        <option value="Promotor">Promotores</option>
+                        <option value="Detrator">Detratores</option>
+                        <option value="Neutro">Neutros</option>
+                    </select>
                 </div>
-                <div id="l-motives" class="table-container scroll-v h-64 space-y-3 pr-2"></div>
+                <div id="l-motives" class="table-container scroll-v h-80 space-y-3 pr-2"></div>
             </div>
         </div>
     </div>
@@ -124,44 +204,57 @@
     <script>
         let rawData = [];
         let charts = {};
-        let tempCSV = [];
+        let tempCSVData = [];
 
+        // Inicialização: Busca dados do Firebase ao abrir
         async function init() {
-            document.getElementById('cloud-status').innerText = "Carregando dados da nuvem...";
+            const statusEl = document.getElementById('cloud-status');
             try {
-                const data = await window.loadFromFirebase();
-                rawData = data || [];
-                document.getElementById('cloud-status').innerText = rawData.length > 0 ? `${rawData.length} registros ativos na nuvem.` : "Banco vazio. Importe um CSV.";
+                const cloudData = await window.loadFromFirebase();
+                if(cloudData && cloudData.length > 0) {
+                    rawData = cloudData;
+                    statusEl.innerText = `${rawData.length} registros carregados da nuvem.`;
+                } else {
+                    statusEl.innerText = "Banco de dados vazio. Importe um CSV para começar.";
+                }
+                setupFilters(rawData);
+                update();
             } catch (e) {
-                document.getElementById('cloud-status').innerText = "Erro ao carregar nuvem.";
+                statusEl.innerText = "Erro ao conectar com a nuvem.";
             }
-            setupFilters(rawData);
-            update();
+
             document.getElementById('csv-upload').addEventListener('change', handleFile);
         }
 
         function handleFile(e) {
             const file = e.target.files[0];
             if (!file) return;
+
             Papa.parse(file, {
                 header: true, skipEmptyLines: true,
                 complete: function(res) {
-                    tempCSV = res.data.map(r => {
-                        let nRaw = r['Nota'] ? String(r['Nota']).replace(',', '.').trim() : '';
-                        let dRaw = r['Data de fechamento do chamado'] || '';
-                        let dt = '';
-                        if(dRaw.includes('/')) { const p = dRaw.split(' ')[0].split('/'); dt = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; }
+                    tempCSVData = res.data.map(r => {
+                        let notaRaw = r['Nota'] ? String(r['Nota']).replace(',', '.').trim() : '';
+                        let parsedNota = parseFloat(notaRaw);
+                        let dateRaw = r['Data de fechamento do chamado'] || '';
+                        let dtClose = '';
+                        if(dateRaw.includes('/')) {
+                            const p = dateRaw.split(' ')[0].split('/');
+                            dtClose = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+                        }
                         return {
-                            Data_Fechamento: dt,
+                            Data_Fechamento: dtClose,
                             Contato: r['Contato'] || 'Anônimo',
                             Nome_Atendente: r['Nome do atendente'] || 'Não identificado',
                             Departamento: r['Departamentos do chamado'] || 'Geral',
-                            Nota_numeric: !isNaN(parseFloat(nRaw)) ? parseFloat(nRaw) : null,
+                            Nota_numeric: !isNaN(parsedNota) ? parsedNota : null,
                             Classificação: r['Classificação'] || 'Não avaliado',
                             Motivo: r['Motivo'] || ''
                         };
                     }).filter(r => r.Data_Fechamento);
-                    rawData = [...rawData, ...tempCSV];
+
+                    // Adiciona à visualização atual sem salvar ainda
+                    rawData = [...rawData, ...tempCSVData];
                     document.getElementById('btn-sync').classList.remove('hidden');
                     setupFilters(rawData);
                     update();
@@ -169,132 +262,191 @@
             });
         }
 
-        async function syncWithFirebase() {
+        // Função chamada pelo botão "SALVAR NA NUVEM"
+        async function syncData() {
             const btn = document.getElementById('btn-sync');
-            btn.innerText = "Sincronizando...";
-            const ok = await window.saveToFirebase(tempCSV);
-            if(ok) { alert("Sincronizado com o Firebase!"); btn.classList.add('hidden'); location.reload(); } 
-            else { alert("Erro ao salvar."); btn.innerText = "Tentar Novamente"; }
+            btn.innerText = "Processando...";
+            btn.disabled = true;
+
+            const result = await window.saveToFirebase(tempCSVData);
+
+            if(result.success) {
+                alert(`Sucesso! ${result.added} novos registros foram salvos. Duplicados foram ignorados.`);
+                location.reload(); // Recarrega para limpar duplicados visuais da memória
+            } else {
+                alert("Erro ao salvar dados.");
+                btn.innerText = "SALVAR NA NUVEM";
+                btn.disabled = false;
+            }
         }
 
         function setupFilters(data) {
             const depts = [...new Set(data.map(r => r.Departamento))].sort();
             const agents = [...new Set(data.map(r => r.Nome_Atendente))].sort();
-            fillSelect('f-dept', depts, 'Todos');
-            fillSelect('f-agent', agents, 'Todos');
+            fillSelect('f-dept', depts, 'Todos os Setores');
+            fillSelect('f-agent', agents, 'Todos os Atendentes');
         }
 
         function fillSelect(id, items, def) {
             const s = document.getElementById(id);
-            const val = s.value;
+            const currentVal = s.value;
             s.innerHTML = `<option value="all">${def}</option>`;
             items.forEach(i => s.add(new Option(i, i)));
-            if([...s.options].some(o => o.value === val)) s.value = val;
+            if([...s.options].some(o => o.value === currentVal)) s.value = currentVal;
         }
 
         function update() {
-            const sd = document.getElementById('f-start-date').value;
-            const ed = document.getElementById('f-end-date').value;
-            const dp = document.getElementById('f-dept').value;
+            const startDt = document.getElementById('f-start-date').value;
+            const endDt = document.getElementById('f-end-date').value;
+            const dept = document.getElementById('f-dept').value;
             const ag = document.getElementById('f-agent').value;
-            const sc = document.getElementById('f-search').value.toLowerCase();
-            const mc = document.getElementById('f-motive-class').value;
+            const search = document.getElementById('f-search').value.toLowerCase();
+            const motiveClass = document.getElementById('f-motive-class').value;
 
             const filtered = rawData.filter(r => {
-                const dtOk = (sd === '' || r.Data_Fechamento >= sd) && (ed === '' || r.Data_Fechamento <= ed);
-                return dtOk && (dp === 'all' || r.Departamento === dp) && (ag === 'all' || r.Nome_Atendente === ag) && (sc === '' || r.Contato.toLowerCase().includes(sc));
+                const dateMatch = (startDt === '' || r.Data_Fechamento >= startDt) && 
+                                  (endDt === '' || r.Data_Fechamento <= endDt);
+                return dateMatch &&
+                       (dept === 'all' || r.Departamento === dept) &&
+                       (ag === 'all' || r.Nome_Atendente === ag) &&
+                       (search === '' || r.Contato.toLowerCase().includes(search));
             });
 
             renderKPIs(filtered);
             renderChurn(filtered);
             renderCharts(filtered);
-            renderTables(filtered, mc);
+            renderTables(filtered, motiveClass);
         }
 
         function renderKPIs(data) {
-            const ev = data.filter(r => r.Classificação !== 'Não avaliado');
-            const p = ev.filter(r => r.Classificação === 'Promotor').length;
-            const d = ev.filter(r => r.Classificação === 'Detrator').length;
-            const nps = ev.length ? ((p-d)/ev.length)*100 : 0;
-            const nts = data.filter(r => r.Nota_numeric !== null).map(r => r.Nota_numeric);
-            const avg = nts.length ? nts.reduce((a,b)=>a+b,0)/nts.length : 0;
+            const evalOnly = data.filter(r => r.Classificação !== 'Não avaliado');
+            const p = evalOnly.filter(r => r.Classificação === 'Promotor').length;
+            const d = evalOnly.filter(r => r.Classificação === 'Detrator').length;
+            const nps = evalOnly.length ? ((p-d)/evalOnly.length)*100 : 0;
+            const notes = data.filter(r => r.Nota_numeric !== null).map(r => r.Nota_numeric);
+            const avg = notes.length ? notes.reduce((a,b)=>a+b,0)/notes.length : 0;
 
             document.getElementById('v-nps').innerText = nps.toFixed(1);
             document.getElementById('v-avg').innerText = avg.toFixed(1);
             document.getElementById('v-total').innerText = data.length;
-            document.getElementById('v-rate').innerText = data.length ? ((ev.length/data.length)*100).toFixed(1)+'%' : '0%';
+            document.getElementById('v-rate').innerText = data.length ? ((evalOnly.length/data.length)*100).toFixed(1)+'%' : '0%';
             document.getElementById('v-dets').innerText = d;
         }
 
         function renderChurn(data) {
-            const cli = {};
+            const clients = {};
             data.forEach(r => {
-                if(!cli[r.Contato]) cli[r.Contato] = { n: [], c: [], t: 0 };
-                cli[r.Contato].t++;
-                if(r.Nota_numeric !== null) cli[r.Contato].n.push(r.Nota_numeric);
-                cli[r.Contato].c.push(r.Classificação);
+                if(!clients[r.Contato]) clients[r.Contato] = { notes: [], classes: [], count: 0 };
+                clients[r.Contato].count++;
+                if(r.Nota_numeric !== null) clients[r.Contato].notes.push(r.Nota_numeric);
+                clients[r.Contato].classes.push(r.Classificação);
             });
 
-            const churn = Object.entries(cli).map(([name, s]) => {
-                let p = 0;
-                const lc = s.c[s.c.length-1];
-                const ln = s.n[s.n.length-1];
-                if(lc === 'Detrator') p += 65; else if(lc === 'Neutro') p += 30;
-                if(ln !== undefined && ln <= 4) p += 25;
-                p = Math.min(p, 99);
-                return { name, ln: ln ?? '-', lc, t: s.t, p };
-            }).filter(c => c.p >= 30).sort((a,b)=>b.p-a.p).slice(0, 15);
+            const churnList = Object.entries(clients).map(([name, s]) => {
+                let prob = 0;
+                const lastClass = s.classes[s.classes.length - 1];
+                const lastNote = s.notes[s.notes.length - 1];
+                if(lastClass === 'Detrator') prob += 65;
+                if(lastNote !== undefined && lastNote <= 4) prob += 25;
+                prob = Math.min(prob, 99);
+                return { name, lastNote: lastNote ?? '-', lastClass, count: s.count, prob };
+            }).filter(c => c.prob >= 30).sort((a,b) => b.prob - a.prob);
 
-            document.getElementById('v-churn').innerText = churn.length;
-            document.querySelector('#t-churn-details tbody').innerHTML = churn.map(c => `
-                <tr class="${c.p > 70 ? 'bg-red-900/10' : ''}">
-                    <td class="font-bold">${c.name}</td><td>${c.ln}</td>
-                    <td class="${c.lc === 'Detrator' ? 'text-red-500' : 'text-amber-500'}">${c.lc}</td>
-                    <td>${c.t}</td><td>${c.p}%</td>
-                    <td><span class="badge-risk ${c.p > 70 ? 'bg-red-500 text-white' : 'bg-amber-500 text-black'}">${c.p > 70 ? 'CRÍTICO' : 'ATENÇÃO'}</span></td>
-                </tr>`).join('');
+            document.getElementById('v-churn').innerText = churnList.length;
+            document.querySelector('#t-churn-details tbody').innerHTML = churnList.map(c => `
+                <tr>
+                    <td class="font-bold">${c.name}</td>
+                    <td>${c.lastNote}</td>
+                    <td class="${c.lastClass === 'Detrator' ? 'text-red-500' : 'text-amber-500'}">${c.lastClass}</td>
+                    <td>${c.count}</td>
+                    <td><div class="flex items-center gap-2"><div class="w-full bg-zinc-800 h-1 rounded-full"><div class="bg-red-500 h-1" style="width:${c.prob}%"></div></div><span class="text-[10px]">${c.prob}%</span></div></td>
+                    <td><span class="badge-risk ${c.prob > 70 ? 'bg-red-500 text-white border-none' : ''}">${c.prob > 70 ? 'CRÍTICO' : 'ATENÇÃO'}</span></td>
+                </tr>
+            `).join('');
         }
 
         function renderCharts(data) {
             const ct = { 'Promotor': 0, 'Detrator': 0, 'Neutro': 0, 'Não avaliado': 0 };
             data.forEach(r => ct[r.Classificação]++);
-            updateChart('c-pie', 'doughnut', { labels: Object.keys(ct), datasets: [{ data: Object.values(ct), backgroundColor: ['#10b981','#ef4444','#f59e0b','#3f3f46'], borderWidth: 0 }] }, { cutout: '75%', plugins: { legend: { position: 'bottom' } } });
-            
-            const dts = [...new Set(data.map(r => r.Data_Fechamento))].sort();
-            const npsL = dts.map(dt => {
+            updateChart('c-pie', 'doughnut', {
+                labels: Object.keys(ct),
+                datasets: [{ data: Object.values(ct), backgroundColor: ['#10b981','#ef4444','#f59e0b','#3f3f46'], borderWidth: 0 }]
+            }, { cutout: '75%', plugins: { legend: { position: 'bottom' } } });
+
+            const dates = [...new Set(data.map(r => r.Data_Fechamento))].sort();
+            const npsL = dates.map(dt => {
                 const dy = data.filter(r => r.Data_Fechamento === dt && r.Classificação !== 'Não avaliado');
                 if(!dy.length) return null;
                 const p = dy.filter(r => r.Classificação === 'Promotor').length;
                 const d = dy.filter(r => r.Classificação === 'Detrator').length;
                 return ((p-d)/dy.length)*100;
             });
-            updateChart('c-line', 'line', { labels: dts, datasets: [{ label: 'NPS', data: npsL, borderColor: '#8b5cf6', tension: 0.3, pointRadius: 2 }] });
+            updateChart('c-line', 'line', {
+                labels: dates,
+                datasets: [{ label: 'NPS', data: npsL, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', fill: true, tension: 0.3, pointRadius: 2 }]
+            });
+
+            // Agente Charts
+            const agentMap = {};
+            data.forEach(r => agentMap[r.Nome_Atendente] = (agentMap[r.Nome_Atendente] || 0) + 1);
+            const topVol = Object.entries(agentMap).sort((a,b) => b[1]-a[1]).slice(0, 10);
+            updateChart('c-agent-vol', 'bar', {
+                labels: topVol.map(x => x[0]),
+                datasets: [{ label: 'Volume', data: topVol.map(x => x[1]), backgroundColor: '#3b82f6', borderRadius: 4 }]
+            }, { indexAxis: 'y' });
+
+            const agentScore = {};
+            data.forEach(r => {
+                if(r.Nota_numeric === null) return;
+                if(!agentScore[r.Nome_Atendente]) agentScore[r.Nome_Atendente] = { sum: 0, count: 0 };
+                agentScore[r.Nome_Atendente].sum += r.Nota_numeric;
+                agentScore[r.Nome_Atendente].count++;
+            });
+            const topScore = Object.entries(agentScore).map(([n,s])=>({n,avg:s.sum/s.count})).sort((a,b)=>b.avg-a.avg).slice(0,10);
+            updateChart('c-agent-avg', 'bar', {
+                labels: topScore.map(x => x.n),
+                datasets: [{ label: 'Média', data: topScore.map(x => x.avg), backgroundColor: '#a78bfa', borderRadius: 4 }]
+            }, { indexAxis: 'y' });
         }
 
-        function renderTables(data, mc) {
-            const map = {}; data.forEach(r => map[r.Contato] = (map[r.Contato] || 0) + 1);
-            const top = Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0, 15);
-            document.querySelector('#t-top-clients tbody').innerHTML = top.map(x => `<tr><td>${x[0]}</td><td class="font-bold text-right">${x[1]}</td></tr>`).join('');
+        function renderTables(data, motiveClass) {
+            const cMap = {};
+            data.forEach(r => cMap[r.Contato] = (cMap[r.Contato] || 0) + 1);
+            const topClients = Object.entries(cMap).sort((a,b) => b[1]-a[1]).slice(0, 15);
+            document.querySelector('#t-top-clients tbody').innerHTML = topClients.map(x => `<tr><td>${x[0]}</td><td class="font-bold">${x[1]}</td></tr>`).join('');
+
+            const dets = data.filter(r => r.Classificação === 'Detrator').reverse().slice(0, 15);
+            document.querySelector('#t-det-list tbody').innerHTML = dets.map(x => `<tr><td class="text-red-400">${x.Contato}</td><td class="font-bold">${x.Nota_numeric ?? '-'}</td></tr>`).join('');
+
+            let motives = data.filter(r => r.Motivo);
+            if(motiveClass !== 'all') motives = motives.filter(m => m.Classificação === motiveClass);
             
-            const det = data.filter(r => r.Classificação === 'Detrator').reverse().slice(0, 15);
-            document.querySelector('#t-det-list tbody').innerHTML = det.map(x => `<tr><td class="text-red-400">${x.Contato}</td><td class="font-bold text-right">${x.Nota_numeric ?? '-'}</td></tr>`).join('');
-            
-            let mot = data.filter(r => r.Motivo);
-            if(mc !== 'all') mot = mot.filter(m => m.Classificação === mc);
-            document.getElementById('l-motives').innerHTML = mot.reverse().map(m => {
-                let colorClass = 'text-zinc-400';
-                if(m.Classificação === 'Promotor') colorClass = 'text-emerald-500';
-                else if(m.Classificação === 'Detrator') colorClass = 'text-red-500';
-                else if(m.Classificação === 'Neutro') colorClass = 'text-amber-500';
-                return `<div class="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-[11px] mb-2"><div class="flex justify-between font-bold mb-1"><span class="${colorClass}">${m.Classificação.toUpperCase()}</span><span class="text-zinc-500">${m.Data_Fechamento}</span></div><p class="italic text-zinc-200">"${m.Motivo}"</p><div class="text-[9px] text-zinc-500 mt-2">${m.Contato}</div></div>`;
+            document.getElementById('l-motives').innerHTML = motives.reverse().map(m => {
+                let color = 'text-zinc-400';
+                if(m.Classificação === 'Promotor') color = 'text-emerald-500';
+                else if(m.Classificação === 'Detrator') color = 'text-red-500';
+                else if(m.Classificação === 'Neutro') color = 'text-amber-500';
+
+                return `<div class="bg-zinc-900 p-3 rounded-lg border border-zinc-800">
+                    <div class="flex justify-between items-center text-[10px] mb-1">
+                        <span class="font-bold ${color}">${m.Classificação.toUpperCase()}</span>
+                        <span class="text-zinc-500">${m.Data_Fechamento}</span>
+                    </div>
+                    <p class="text-xs text-zinc-200">"${m.Motivo}"</p>
+                    <div class="text-[9px] text-zinc-500 mt-1">${m.Contato} • Atendente: ${m.Nome_Atendente}</div>
+                </div>`;
             }).join('');
         }
 
         function updateChart(id, type, data, opt) {
             if (charts[id]) charts[id].destroy();
             const ctx = document.getElementById(id).getContext('2d');
-            charts[id] = new Chart(ctx, { type, data, options: { responsive: true, maintainAspectRatio: false, ...opt } });
+            charts[id] = new Chart(ctx, {
+                type: type, data: data,
+                options: { responsive: true, maintainAspectRatio: false, ...opt }
+            });
         }
+
         window.onload = init;
     </script>
 </body>
