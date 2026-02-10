@@ -11,7 +11,7 @@
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, query, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, query } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDIkQ-eXK_w01edPsMEdcwOMKU8ZRZkqfQ",
@@ -26,25 +26,20 @@
         const db = getFirestore(app);
         const npsCollection = collection(db, "avaliacoes");
 
-        // Enviar para nuvem
+        // Função Global para salvar
         window.saveToFirebase = async (data) => {
-            const btn = document.getElementById('btn-sync');
-            btn.innerText = "Salvando...";
             try {
                 for (const item of data) {
                     await addDoc(npsCollection, item);
                 }
-                alert("Sincronizado com o Banco de Dados!");
-                location.reload(); 
+                return true;
             } catch (e) {
                 console.error(e);
-                alert("Erro ao salvar.");
-            } finally {
-                btn.innerText = "Nuvem Sincronizada";
+                return false;
             }
         };
 
-        // Carregar da nuvem ao abrir
+        // Função Global para carregar
         window.loadFromFirebase = async () => {
             const querySnapshot = await getDocs(query(npsCollection));
             const data = [];
@@ -59,6 +54,11 @@
         .kpi-val { font-size: 1.875rem; font-weight: 700; color: #ffffff; }
         .kpi-label { font-size: 0.75rem; color: #a1a1aa; text-transform: uppercase; font-weight: 600; margin-bottom: 0.25rem; }
         select, input { background: #18181b; border: 1px solid #3f3f46; color: #fff; padding: 0.5rem; border-radius: 8px; font-size: 0.875rem; outline: none; width: 100%; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        .table-container { overflow-y: auto; max-height: 400px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px; font-size: 0.7rem; color: #71717a; border-bottom: 1px solid #27272a; text-transform: uppercase; }
+        td { padding: 10px; font-size: 0.8rem; border-bottom: 1px solid #27272a; }
         .scroll-v::-webkit-scrollbar { width: 4px; }
         .scroll-v::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
         .badge-risk { padding: 2px 6px; border-radius: 4px; font-size: 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444; }
@@ -66,58 +66,83 @@
 </head>
 <body class="p-6">
     <div class="max-w-[1500px] mx-auto">
+        
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
             <div>
                 <h1 class="text-3xl font-bold text-white tracking-tight">Dashboard NPS <span class="text-violet-500">Cloud</span></h1>
-                <p id="status-cloud" class="text-zinc-500 italic">Conectando ao Firebase...</p>
+                <p id="cloud-status" class="text-zinc-500 text-sm italic">Conectando ao banco de dados...</p>
             </div>
             <div class="flex gap-2">
                 <div class="card flex items-center gap-3 py-2 px-4">
-                    <span class="text-xs font-bold text-zinc-400">IMPORTAR CSV:</span>
+                    <span class="text-xs font-bold text-zinc-400">CSV:</span>
                     <input type="file" id="csv-upload" accept=".csv" class="text-xs cursor-pointer">
                 </div>
-                <button id="btn-sync" onclick="syncData()" class="hidden bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold py-2 px-4 rounded-lg transition">
-                    Sincronizar com Nuvem
+                <button id="btn-sync" onclick="syncWithFirebase()" class="hidden bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold py-2 px-6 rounded-lg transition">
+                    SALVAR NA NUVEM
                 </button>
             </div>
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Início</label><input type="date" id="f-start-date" onchange="update()"></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Término</label><input type="date" id="f-end-date" onchange="update()"></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Setor</label><select id="f-dept" onchange="update()"><option value="all">Todos</option></select></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Atendente</label><select id="f-agent" onchange="update()"><option value="all">Todos</option></select></div>
-            <div class="flex flex-col gap-1"><label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Buscar</label><input type="text" id="f-search" placeholder="Cliente..." oninput="update()"></div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Início</label>
+                <input type="date" id="f-start-date" onchange="update()">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Data Término</label>
+                <input type="date" id="f-end-date" onchange="update()">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Setor</label>
+                <select id="f-dept" onchange="update()"><option value="all">Todos os Setores</option></select>
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Atendente</label>
+                <select id="f-agent" onchange="update()"><option value="all">Todos os Atendentes</option></select>
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase ml-1">Pesquisar Cliente</label>
+                <input type="text" id="f-search" placeholder="Nome do cliente..." oninput="update()">
+            </div>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-            <div class="card"><div class="kpi-label">NPS</div><div id="v-nps" class="kpi-val text-violet-400">-</div></div>
-            <div class="card"><div class="kpi-label">Média</div><div id="v-avg" class="kpi-val">-</div></div>
-            <div class="card border-l-4 border-red-500"><div class="kpi-label text-red-500">Churn</div><div id="v-churn" class="kpi-val text-red-500">-</div></div>
-            <div class="card"><div class="kpi-label">Total</div><div id="v-total" class="kpi-val">-</div></div>
-            <div class="card"><div class="kpi-label">Taxa Eval</div><div id="v-rate" class="kpi-val">-</div></div>
-            <div class="card"><div class="kpi-label">Dets</div><div id="v-dets" class="kpi-val text-red-500">-</div></div>
+            <div class="card"><div class="kpi-label">1. NPS</div><div id="v-nps" class="kpi-val text-violet-400">-</div></div>
+            <div class="card"><div class="kpi-label">2. Média Notas</div><div id="v-avg" class="kpi-val">-</div></div>
+            <div class="card border-l-4 border-red-500"><div class="kpi-label text-red-400">3. Risco Churn</div><div id="v-churn" class="kpi-val text-red-500">-</div></div>
+            <div class="card"><div class="kpi-label">4. Total Chamados</div><div id="v-total" class="kpi-val">-</div></div>
+            <div class="card"><div class="kpi-label">5. Taxa Avaliação</div><div id="v-rate" class="kpi-val">-</div></div>
+            <div class="card"><div class="kpi-label">6. Detratores (Filtrado)</div><div id="v-dets" class="kpi-val text-red-500">-</div></div>
         </div>
 
         <div class="card mb-8">
-            <h3 class="kpi-label mb-4 text-red-500 font-bold">🔍 Análise de Risco</h3>
-            <div class="overflow-x-auto"><table class="w-full text-left" id="t-churn-details"><thead><tr><th>Cliente</th><th>Nota</th><th>Classe</th><th>Tickets</th><th>Probabilidade</th><th>Status</th></tr></thead><tbody class="text-sm"></tbody></table></div>
+            <h3 class="kpi-label mb-4 text-red-500 font-bold">🔍 Análise de Probabilidade de Cancelamento</h3>
+            <div class="table-container scroll-v max-h-64">
+                <table id="t-churn-details">
+                    <thead>
+                        <tr><th>Cliente</th><th>Última Nota</th><th>Classificação</th><th>Tickets</th><th>Probabilidade</th><th>Status</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div class="card lg:col-span-1"><h3 class="kpi-label mb-4">Composição</h3><div class="h-[250px]"><canvas id="c-pie"></canvas></div></div>
-            <div class="card lg:col-span-2"><h3 class="kpi-label mb-4">Evolução NPS</h3><div class="h-[250px]"><canvas id="c-line"></canvas></div></div>
+            <div class="card lg:col-span-1"><h3 class="kpi-label mb-4">7. Composição</h3><div class="h-[250px]"><canvas id="c-pie"></canvas></div></div>
+            <div class="card lg:col-span-2"><h3 class="kpi-label mb-4">8. Evolução NPS</h3><div class="h-[250px]"><canvas id="c-line"></canvas></div></div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div class="card"><h3 class="kpi-label mb-4">Top 15 Clientes</h3><div class="max-h-64 overflow-y-auto scroll-v"><table id="t-top-clients" class="w-full text-xs"><tbody></tbody></table></div></div>
-            <div class="card"><h3 class="kpi-label mb-4 text-red-400">Lista Detratores</h3><div class="max-h-64 overflow-y-auto scroll-v"><table id="t-det-list" class="w-full text-xs"><tbody></tbody></table></div></div>
+            <div class="card"><h3 class="kpi-label mb-4">12. Clientes Mais Frequentes</h3><div class="table-container scroll-v h-80"><table id="t-top-clients"><tbody></tbody></table></div></div>
+            <div class="card"><h3 class="kpi-label mb-4 text-red-400">13. Lista de Detratores</h3><div class="table-container scroll-v h-80"><table id="t-det-list"><tbody></tbody></table></div></div>
             <div class="card flex flex-col">
-                <div class="flex justify-between items-center mb-4"><h3 class="kpi-label !mb-0">Feedbacks</h3>
-                <select id="f-motive-class" onchange="update()" class="!w-auto !py-1 !px-2 !text-[10px] !bg-zinc-800 border-none">
-                    <option value="all">Todos</option><option value="Promotor">Promotores</option><option value="Detrator">Detratores</option>
-                </select></div>
-                <div id="l-motives" class="max-h-64 overflow-y-auto scroll-v space-y-2 pr-2"></div>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="kpi-label !mb-0">11. Feedbacks</h3>
+                    <select id="f-motive-class" onchange="update()" class="!w-auto !py-1 !px-2 !text-[10px] !bg-zinc-800 border-none">
+                        <option value="all">Todos</option><option value="Promotor">Promotores</option><option value="Detrator">Detratores</option>
+                    </select>
+                </div>
+                <div id="l-motives" class="table-container scroll-v h-80 space-y-3 pr-2"></div>
             </div>
         </div>
     </div>
@@ -125,21 +150,21 @@
     <script>
         let rawData = [];
         let charts = {};
-        let tempCSVData = [];
+        let lastImportedData = [];
 
         async function init() {
             try {
                 const cloudData = await window.loadFromFirebase();
                 if(cloudData && cloudData.length > 0) {
                     rawData = cloudData;
-                    document.getElementById('status-cloud').innerText = `Conectado: ${rawData.length} registros carregados.`;
+                    document.getElementById('cloud-status').innerText = `Sincronizado: ${rawData.length} registros na nuvem.`;
                 } else {
-                    document.getElementById('status-cloud').innerText = "Nuvem vazia. Importe um CSV para começar.";
+                    document.getElementById('cloud-status').innerText = "Banco de dados vazio. Importe um CSV.";
                 }
                 setupFilters(rawData);
                 update();
             } catch (e) {
-                document.getElementById('status-cloud').innerText = "Erro ao conectar com a nuvem.";
+                document.getElementById('cloud-status').innerText = "Erro ao carregar dados da nuvem.";
             }
             document.getElementById('csv-upload').addEventListener('change', handleFile);
         }
@@ -150,7 +175,7 @@
             Papa.parse(file, {
                 header: true, skipEmptyLines: true,
                 complete: function(res) {
-                    tempCSVData = res.data.map(r => {
+                    lastImportedData = res.data.map(r => {
                         let notaRaw = r['Nota'] ? String(r['Nota']).replace(',', '.').trim() : '';
                         let parsedNota = parseFloat(notaRaw);
                         let dateRaw = r['Data de fechamento do chamado'] || '';
@@ -170,31 +195,41 @@
                         };
                     }).filter(r => r.Data_Fechamento);
 
-                    rawData = [...rawData, ...tempCSVData];
+                    rawData = [...rawData, ...lastImportedData];
                     document.getElementById('btn-sync').classList.remove('hidden');
+                    setupFilters(rawData);
                     update();
                 }
             });
         }
 
-        async function syncData() {
-            if(tempCSVData.length > 0) {
-                await window.saveToFirebase(tempCSVData);
-                tempCSVData = [];
+        async function syncWithFirebase() {
+            const btn = document.getElementById('btn-sync');
+            btn.innerText = "Sincronizando...";
+            const success = await window.saveToFirebase(lastImportedData);
+            if(success) {
+                alert("Dados salvos na nuvem com sucesso!");
+                btn.classList.add('hidden');
+                location.reload(); 
+            } else {
+                alert("Erro ao salvar dados.");
+                btn.innerText = "Tentar novamente";
             }
         }
 
         function setupFilters(data) {
             const depts = [...new Set(data.map(r => r.Departamento))].sort();
             const agents = [...new Set(data.map(r => r.Nome_Atendente))].sort();
-            fillSelect('f-dept', depts, 'Todos');
-            fillSelect('f-agent', agents, 'Todos');
+            fillSelect('f-dept', depts, 'Todos os Setores');
+            fillSelect('f-agent', agents, 'Todos os Atendentes');
         }
 
         function fillSelect(id, items, def) {
             const s = document.getElementById(id);
+            const currentVal = s.value;
             s.innerHTML = `<option value="all">${def}</option>`;
             items.forEach(i => s.add(new Option(i, i)));
+            if([...s.options].some(o => o.value === currentVal)) s.value = currentVal;
         }
 
         function update() {
@@ -249,15 +284,13 @@
                 prob = Math.min(prob, 99);
                 return { name, lastNote: lastNote ?? '-', lastClass, count: s.count, prob };
             }).filter(c => c.prob >= 30).sort((a,b) => b.prob - a.prob).slice(0,10);
-
             document.querySelector('#t-churn-details tbody').innerHTML = churnList.map(c => `<tr><td class="font-bold">${c.name}</td><td>${c.lastNote}</td><td class="${c.lastClass === 'Detrator' ? 'text-red-500' : 'text-amber-500'}">${c.lastClass}</td><td>${c.count}</td><td>${c.prob}%</td><td><span class="badge-risk">${c.prob > 70 ? 'CRÍTICO' : 'ATENÇÃO'}</span></td></tr>`).join('');
         }
 
         function renderCharts(data) {
             const counts = { 'Promotor': 0, 'Detrator': 0, 'Neutro': 0, 'Não avaliado': 0 };
             data.forEach(r => counts[r.Classificação]++);
-            updateChart('c-pie', 'doughnut', { labels: Object.keys(counts), datasets: [{ data: Object.values(counts), backgroundColor: ['#10b981','#ef4444','#f59e0b','#3f3f46'], borderWidth: 0 }] }, { cutout: '75%' });
-
+            updateChart('c-pie', 'doughnut', { labels: Object.keys(counts), datasets: [{ data: Object.values(counts), backgroundColor: ['#10b981','#ef4444','#f59e0b','#3f3f46'], borderWidth: 0 }] }, { cutout: '75%', plugins: { legend: { position: 'bottom' } } });
             const dates = [...new Set(data.map(r => r.Data_Fechamento))].sort();
             const npsLine = dates.map(dt => {
                 const dayData = data.filter(r => r.Data_Fechamento === dt && r.Classificação !== 'Não avaliado');
@@ -267,7 +300,6 @@
                 return ((p-d)/dayData.length)*100;
             });
             updateChart('c-line', 'line', { labels: dates, datasets: [{ label: 'NPS', data: npsLine, borderColor: '#8b5cf6', tension: 0.3, pointRadius: 2 }] });
-            // Agent charts simplificados para brevidade
         }
 
         function renderTables(data, motiveClass) {
@@ -275,13 +307,11 @@
             data.forEach(r => cMap[r.Contato] = (cMap[r.Contato] || 0) + 1);
             const top = Object.entries(cMap).sort((a,b)=>b[1]-a[1]).slice(0, 15);
             document.querySelector('#t-top-clients tbody').innerHTML = top.map(x => `<tr><td class="py-1">${x[0]}</td><td class="font-bold">${x[1]}</td></tr>`).join('');
-
             const dets = data.filter(r => r.Classificação === 'Detrator').reverse().slice(0, 15);
             document.querySelector('#t-det-list tbody').innerHTML = dets.map(x => `<tr><td class="text-red-400 py-1">${x.Contato}</td><td class="font-bold">${x.Nota_numeric ?? '-'}</td></tr>`).join('');
-
             let motives = data.filter(r => r.Motivo);
             if(motiveClass !== 'all') motives = motives.filter(m => m.Classificação === motiveClass);
-            document.getElementById('l-motives').innerHTML = motives.reverse().map(m => `<div class="bg-zinc-900 p-2 rounded-lg border border-zinc-800 text-[11px]"><div class="flex justify-between font-bold mb-1"><span class="${m.Classificação === 'Promotor' ? 'text-emerald-500' : 'text-red-500'}">${m.Classificação}</span><span>${m.Data_Fechamento}</span></div><p class="italic text-zinc-300">"${m.Motivo}"</p></div>`).join('');
+            document.getElementById('l-motives').innerHTML = motives.reverse().map(m => `<div class="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-[11px]"><div class="flex justify-between font-bold mb-1"><span class="${m.Classificação === 'Promotor' ? 'text-emerald-500' : 'text-red-500'}">${m.Classificação}</span><span>${m.Data_Fechamento}</span></div><p class="italic text-zinc-300">"${m.Motivo}"</p></div>`).join('');
         }
 
         function updateChart(id, type, data, opt) {
@@ -289,7 +319,6 @@
             const ctx = document.getElementById(id).getContext('2d');
             charts[id] = new Chart(ctx, { type, data, options: { responsive: true, maintainAspectRatio: false, ...opt } });
         }
-
         window.onload = init;
     </script>
 </body>
